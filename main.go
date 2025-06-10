@@ -29,6 +29,9 @@ var (
 	imageStore = make(map[string][]byte)
 	imageExpiry = make(map[string]time.Time)
 	imageStoreMu sync.Mutex
+
+	lastMessageTime = make(map[string]time.Time)
+	lastMessageTimeMu sync.Mutex
 )
 
 var sessionCookieName = "alantern_session"
@@ -104,6 +107,16 @@ func handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionID := getOrCreateSession(w, r)
+
+	lastMessageTimeMu.Lock()
+	lastTime, exists := lastMessageTime[sessionID]
+	if exists && time.Since(lastTime) < 2*time.Second {
+		lastMessageTimeMu.Unlock()
+		sendPrivateMessage(sessionID, "holy man ur spamming as fast as omar eats")
+		return
+	}
+	lastMessageTime[sessionID] = time.Now()
+	lastMessageTimeMu.Unlock()
 
 	if strings.HasPrefix(message, ";") {
 		handleCommand(sessionID, message)
