@@ -1,0 +1,247 @@
+<?DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" width="device-width,initial-scale=1.0" />
+    <title>Alantern</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body,
+      input,
+      button {
+        font-family: Calibri, sans-serif;
+      }
+
+      html,
+      body {
+        overflow-y: hidden;
+      }
+
+      header {
+        border-bottom: 1px solid black;
+        background-color: white;
+        padding: 8px;
+        box-shadow: 0 0 8px #0002;
+      }
+
+      header p {
+        margin-bottom: 0.5em;
+      }
+
+      input,
+      button {
+        padding: 1px;
+      }
+
+      button {
+        min-width: 100px;
+        border-radius: 0;
+        outline: none;
+        border: 1px solid black;
+        background-color: lightgrey;
+      }
+
+      button:hover {
+        background-color: darkgrey;
+      }
+
+      input {
+        border-radius: 0;
+        border: 1px solid black;
+      }
+
+      #messageInput {
+        width: 80ch;
+      }
+
+      #nicknameInput {
+        width: 10ch;
+      }
+
+      #messages {
+        height: calc(100vh - 65px);
+        overflow: scroll;
+        padding: 8px;
+      }
+
+      .message {
+        margin-bottom: 4px;
+      }
+
+      .highlight-username {
+        color: blue;
+        font-weight: bold;
+      }
+
+      .highlight-ping {
+        background-color: #ff04;
+        border: 1px solid #808000;
+        padding-inline: 2px;
+      }
+
+      .highlight-admin-app {
+        color: black;
+        font-weight: bold;
+        text-decoration: wavy underline;
+        font-style: italic;
+      }
+
+      .private-message {
+        padding: 8px;
+        background-color: #eee;
+        opacity: 0.6;
+        outline: 1px solid grey;
+        margin-block: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <p>
+        Set nickname: <input id="nicknameInput" type="text" maxlength="32" />
+        <button onclick="setNickname()">Set</button>
+      </p>
+      <p>
+        Message: <input id="messageInput" type="text" maxlength="2000" />
+        <button onclick="sendMessage()">Send</button>
+        <input type="file" accept="image/*" id="imageInput" />
+        <button onclick="uploadImage()">Upload Image</button>
+      </p>
+    </header>
+    <div id="messages"></div>
+
+    <script>
+      const messageInput = document.getElementById("messageInput");
+      const messagesDiv = document.getElementById("messages");
+      const nicknameInput = document.getElementById("nicknameInput");
+      const imageInput = document.getElementById("imageInput");
+
+      messageInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") sendMessage();
+      });
+
+      nicknameInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") setNickname();
+      });
+
+      window.onload = () => {
+        fetch("/join");
+        window.onunload = () => fetch("/leave");
+      };
+
+      const events = new EventSource("/events");
+      events.onmessage = (e) => {
+        const msg = e.data;
+        if (msg.startsWith("@private ")) {
+          addMessage(msg.slice(9), true);
+        } else if (msg.startsWith("@image ")) {
+          const [_, username, id] = msg.split(" ");
+          addImage(username, id);
+        } else {
+          addMessage(msg);
+        }
+      };
+
+      function addMessage(text, isPrivate) {
+        const msg = document.createElement("div");
+        msg.className = "message" + (isPrivate ? " private-message" : "");
+
+        if (text.startsWith("@color ")) {
+          const [_, color, ...rest] = text.split(" ");
+          const restOfMessage = rest.join(" ");
+
+          if (restOfMessage.includes("{app}")) {
+            msg.innerHTML = restOfMessage.replace(
+              "{app}",
+              '<span class="highlight-admin-app">Alantern</span>'
+            );
+          } else {
+            const bracketMatch = restOfMessage.match(/\[(.*?)\]/);
+            if (bracketMatch) {
+              const username = bracketMatch[1];
+              msg.innerHTML = restOfMessage.replace(
+                `[${username}]`,
+                `<span class="highlight-username" style="color:${color}">${username}</span>`
+              );
+            } else {
+              msg.textContent = restOfMessage;
+            }
+          }
+        } else if (text.includes("{app}")) {
+          msg.innerHTML = text.replace(
+            "{app}",
+            '<span class="highlight-admin-app">Alantern</span>'
+          );
+        } else {
+          const bracketMatch = text.match(/\[(.*?)\]/);
+          if (bracketMatch) {
+            const username = bracketMatch[1];
+            msg.innerHTML = text.replace(
+              `[${username}]`,
+              `<span class="highlight-username">${username}</span>`
+            );
+          } else {
+            msg.textContent = text;
+          }
+        }
+
+        messagesDiv.appendChild(msg);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+      }
+
+      function addImage(username, id) {
+        const msg = document.createElement("div");
+        msg.className = "message";
+        msg.innerHTML = `<span class="highlight-username">${username}</span>: <img src="/image/${id}" style="max-width:100%;max-height:400px">`;
+        messagesDiv.appendChild(msg);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+      }
+
+      function sendMessage() {
+        const message = messageInput.value.trim();
+        if (!message) return;
+
+        fetch("/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: `message=${encodeURIComponent(message)}`,
+        });
+
+        messageInput.value = "";
+      }
+
+      function setNickname() {
+        const nickname = nicknameInput.value.trim();
+        if (!nickname) return;
+
+        fetch("/set-nickname", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: `nickname=${encodeURIComponent(nickname)}`,
+        });
+
+        nicknameInput.value = "";
+      }
+
+      async function uploadImage() {
+        const file = imageInput.files[0];
+        if (!file) return;
+
+        const form = new FormData();
+        form.append("image", file);
+
+        await fetch("/upload-image", {
+          method: "POST",
+          body: form,
+        });
+
+        imageInput.value = "";
+      }
+    </script>
+  </body>
+</html>

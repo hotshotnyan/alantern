@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" width="device-width,initial-scale=1.0">
+    <title>Alantern</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+ 
+      body, input, button {
+        font-family: Calibri, sans-serif;
+      }
+ 
+      html, body {
+        overflow-y: hidden;
+      }
+ 
+      header {
+        border-bottom: 1px solid black;
+        background-color: white;
+        padding: 8px;
+        box-shadow: 0 0 8px #0002;
+      }
+ 
+      header p {
+        margin-bottom: 0.5em;
+      }
+ 
+      input, button {
+        padding: 1px;
+      }
+ 
+      button {
+        min-width: 100px;
+        border-radius: 0;
+        outline: none;
+        border: 1px solid black;
+        background-color: lightgrey;
+      }
+ 
+      button:hover {
+        background-color: darkgrey;
+      }
+ 
+      input {
+        border-radius: 0;
+        border: 1px solid black;
+      }
+ 
+      #messageInput {
+        width: 80ch;
+      }
+ 
+      #nicknameInput {
+        width: 10ch;
+      }
+ 
+      #messages {
+        height: calc(100vh - 65px);
+        overflow: scroll;
+        padding: 8px;
+      }
+ 
+      .message {
+        margin-bottom: 4px;
+      }
+ 
+      .highlight-username {
+        color: blue;
+        font-weight: bold;
+      }
+ 
+      .highlight-ping {
+        background-color: #ff04;
+        border: 1px solid #808000;
+        padding-inline: 2px;
+      }
+ 
+      .highlight-admin-app {
+        color: black;
+        font-weight: bold;
+        text-decoration: wavy underline;
+        font-style: italic;
+      }
+ 
+      .private-message {
+        padding: 8px;
+        background-color: #eee;
+        opacity: 0.6;
+        outline: 1px solid grey;
+        margin-block: 4px;
+      }
+    </style>
+  </head>
+ 
+  <body>
+    <header>
+      <p><b>Alantern</b>: the scrappy, ugly chat app &mdash; written by REDACTED &mdash; long live the free internet &mdash; set a nickname first! then try ;help command</p>
+ 
+      <input type="text" id="messageInput" placeholder="Type your message...">
+      <button onclick="sendMessage()" data-attached="messageInput">Send</button>
+ 
+      <input type="text" id="nicknameInput" autocomplete="off" autocapitalize="none" inputmode="text" placeholder="Nickname" onkeydown="return event.key !== ' '">
+      <button onclick="setNickname()" data-attached="nicknameInput">Set Nickname</button>
+ 
+      <input type="file" id="image-uploader" name="image-uploader">
+      <button onclick="sendImage()">Send Image</button>
+ 
+      <input type="checkbox" id="image-high-quality" name="image-high-quality">
+      <label for="image-high-quality">Send image in high quality (makes app slower)</label>
+    </header>
+ 
+    <div id="messages"></div>
+ 
+    <script>
+      let currentNickname = null;
+ 
+      function hexToRgb(hex) {
+        hex = hex.replace(/^#/, '');
+        if (hex.length === 3) {
+          hex.split('').map(ch => ch + ch).join('');
+        }
+        const num = parseInt(hex, 16);
+        return {
+          r: (num >> 16) & 255,
+          g: (num >> 8) & 255,
+          b: (num & 255)
+        };
+      }
+ 
+      function getBrightness({ r, g, b }) {
+        return 0.299 * r + 0.587 * g + 0.113 * b;
+      }
+ 
+      function darkenColour({ r, g, b }, factor) {
+        return {
+          r: Math.max(0, Math.min(255, Math.floor(r * factor))),
+          g: Math.max(0, Math.min(255, Math.floor(g * factor))),
+          b: Math.max(0, Math.min(255, Math.floor(b * factor)))
+        };
+      }
+ 
+      function rgbToHex({r, g, b }) {
+        const toHex = c => c.toString(16).padStart(2, '0');
+        return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+      }
+ 
+      function hashString(str) {
+        let hash = 2166136261;
+        for (let i = 0; i < str.length; i++) {
+          hash ^= str.charCodeAt(i);
+          hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+        }
+        return (hash >>> 0).toString(16).padEnd(8, '0');
+      }
+ 
+      function getNearestAncestorByClass(element, className) {
+        while (element !== null) {
+          if (element.className === className || element.classList && element.classList.contains(className)) {
+            return element;
+          }
+          element = element.parentElement;
+        }
+        return null;
+      }
+ 
+      function escapeHtml(inputText) {
+        return inputText
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      }
+ 
+      function dismissPrivateMessage(e) {
+        let dismissButton = e.target;
+        let privateMsg = getNearestAncestorByClass(dismissButton, 'message');
+        if (privateMsg === null)
+          return; // huh???????
+        privateMsg.remove();
+      }
+ 
+      function formatMessage(inputText) {
+        if (inputText.substring(0, 9) === '@private ') {
+          inputText = `
+          <div class="private-message">
+            <button onclick="dismissPrivateMessage(event);">dismiss private message</button>
+            ${inputText.substring(9)}
+          </div>`;
+        }
+ 
+        const bracketedTextRegex = /\[([^\]]+)\]/g;
+        const appTextRegex = /{([^\]]+)}/g;
+        const mentionTextRegex = new RegExp(`~${currentNickname}`, 'gi');
+ 
+        // inputText = inputText.replace(bracketedTextRegex, '<span class="highlight-username">$1</span>');
+        inputText = inputText.replace(bracketedTextRegex, (match, nick) => {
+          let nickColour = '#' + hashString(nick).substring(0, 6);
+          let brightness = getBrightness(hexToRgb(nickColour));
+          if (brightness > 200)
+            nickColour = rgbToHex(darkenColour(hexToRgb(nickColour), 0.7));
+ 
+          return `<span class="highlight-username" style="color: ${nickColour}">${nick}</span>`;
+        });
+        inputText = inputText.replace(appTextRegex, '<span class="highlight-admin-app">$1</span>');
+        inputText = inputText.replace(mentionTextRegex, match => {
+          return `<span class="highlight-ping">${match}</span>`;
+        });
+ 
+        return inputText;
+      }
+ 
+      const eventSource = new EventSource('/events');
+ 
+      /*eventSource.onopen = function () {
+        fetch('/join', { method: 'POST' });
+      };*/
+ 
+      window.addEventListener('DOMContentLoaded', () => {
+        fetch('/join', { method: 'POST' });
+      });
+ 
+      eventSource.onmessage = function (event) {
+        const messageContainer = document.getElementById('messages');
+ 
+        if (event.data.startsWith('@image')) {
+          const [_tag, author, id] = event.data.split(' ');
+          const img = new Image();
+          img.src = `/image/${id}`;
+          img.onload = () => {
+            if (img.width < 801) {
+              img.style.maxWidth = '200px';
+            } else {
+              img.style.maxWidth = '300px';
+            }
+          };
+ 
+          const newMessage = document.createElement('div');
+          newMessage.innerHTML = `<span class="highlight-username">${author}</span><br>`;
+          newMessage.appendChild(img);
+          messageContainer.appendChild(newMessage);
+          message.scrollTop = messageContainer.scrollHeight;
+          return;
+        }
+ 
+        const newMessage = document.createElement('div');
+        newMessage.className = 'message';
+        newMessage.innerHTML = formatMessage(escapeHtml(event.data));
+        messageContainer.appendChild(newMessage);
+        messageContainer.scrollTop = messageContainer.scrollHeight;
+      };
+ 
+      [...document.querySelectorAll('input')].forEach(el => {
+        const btn = document.querySelector(`[data-attached=${el.id}]`);
+        if (btn == null) {
+          return;
+        }
+ 
+        el.addEventListener('keypress', ev => {
+          if (ev.key === 'Enter') {
+            ev.preventDefault();
+            btn.click();
+          }
+        });
+      });
+ 
+      function compressImage(file, highQuality) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          const reader = new FileReader();
+ 
+          reader.onload = () => {
+            img.src = reader.result;
+            img.onerror = reject;
+ 
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+ 
+              let quality;
+              if (highQuality) {
+                quality = 0.9; // TODO: try different quality values
+                canvas.width = img.width;
+                canvas.height = img.height;
+              } else {
+                quality = 0.7;
+                const maxWidth = 800;
+                const scale = Math.min(1, maxWidth / img.width);
+                canvas.width = img.width * scale;
+                canvas.height = img.height * scale;
+              }
+ 
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+ 
+              canvas.toBlob(blob => {
+                if (blob) resolve(blob);
+                else reject(new Error('Canvas toBlob failed'));
+              }, 'image/jpeg', quality);
+            };
+          }
+ 
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
+ 
+      function sendImage() {
+        const file = document.querySelector('#image-uploader').files[0];
+        if (!file) {
+          alert('Please upload an image first.');
+          return;
+        }
+ 
+        let highQuality = document.getElementById('image-high-quality').checked;
+        compressImage(file, highQuality).then(blob => {
+          const form = new FormData();
+          form.append('image', blob, 'uploaded-image.jpg');
+          fetch('/upload-image', {
+            method: 'POST',
+            body: form
+          }).then(res => res.text())
+            .then(console.log)
+            .catch(console.error);
+        }).catch(err => {
+          console.error("Compression failed: ", err);
+        });
+      }
+ 
+      function sendMessage() {
+        const messageInput = document.getElementById('messageInput');
+        const message = messageInput.value;
+        if (message.trim() === '') return;
+ 
+        fetch('/send', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: `message=${encodeURIComponent(message)}`
+        }).then(response => {
+          if (response.ok) {
+            messageInput.value = '';
+          }
+        }).catch(error => {
+          console.error('Error sending message: ', error);
+        })
+      }
+ 
+      function setNickname() {
+        const nickNameInput = document.getElementById('nicknameInput');
+        let nickname = nickNameInput.value.trim();
+        if (!nickname) return;
+        nickname = nickname.replace(/\s+/g, '_');
+ 
+        fetch('/set-nickname', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body: `nickname=${encodeURIComponent(nickname)}`
+        }).then(response => {
+          currentNickname = nickname;
+        }).catch(console.error);
+      }
+ 
+      document.addEventListener('keydown', e => {
+        const messageInput = document.querySelector('#messageInput');
+        const activeElem = document.activeElement;
+ 
+        if (e.ctrlKey || e.altKey || e.metaKey) return;
+ 
+        const isInEditable =
+          activeElem &&
+          (activeElem.tagName === 'INPUT' ||
+           activeElem.tagName === 'TEXTAREA' ||
+           activeElem.tagName === 'SELECT' ||
+           activeElem.isContentEditable);
+ 
+        const isPrintableChar = /^[a-z0-9 .,!?'"@#$%^()_+\-=\[\]{};:\\|<>\/`~]$/i.test(e.key);
+ 
+        if (!isInEditable && isPrintableChar) {
+          e.preventDefault();
+          messageInput.focus();
+ 
+          const start = messageInput.selectionStart;
+          const end = messageInput.selectionEnd;
+          const val = messageInput.value;
+          const newVal = val.slice(0, start) + e.key + val.slice(end);
+          messageInput.value = newVal;
+ 
+          messageInput.selectionStart = messaegInput.selectionEnd = start + 1;
+        }
+      });
+ 
+      window.addEventListener('unload', () => {
+        navigator.sendBeacon('/leave');
+      });
+    </script>
+  </body>
+</html>
