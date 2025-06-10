@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"embed"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
@@ -30,6 +31,8 @@ var (
 	imageExpiry = make(map[string]time.Time)
 	imageStoreMu sync.Mutex
 )
+
+var sessionCookieName = "alantern_session"
 
 func main() {
 	http.HandleFunc("/", serveChatPage)
@@ -70,6 +73,29 @@ func serveChatPage(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
+func generateSessionID() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return base64.URLEncoding.EncodeToString(b)
+}
+
+func getOrCreateSession(w http.ResponseWriter, r *http.Request) string {
+	cookie, err := r.Cookie("session_id")
+	if err == nil {
+		return cookie.Value
+	}
+
+	sessionID := generateRandomId()
+	http.SetCookie(w, &http.Cookie{
+		Name:  "session_id",
+		Value: sessionID,
+		Path:  "/",
+	})
+	return sessionID
+}
+
 func handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	message := r.FormValue("message")
@@ -78,76 +104,76 @@ func handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := getIP(r.RemoteAddr)
+	sessionID := getOrCreateSession(w, r)
 
 	if strings.HasPrefix(message, ";") {
-		handleCommand(ip, message)
+		handleCommand(sessionID, message)
 		return
 	}
 
 	nicknameColorsMu.Lock()
-	color := nicknameColors[ip]
+	color := nicknameColors[sessionID]
 	nicknameColorsMu.Unlock()
 
 	var formattedMessage string
 	if color != "" {
-		formattedMessage = fmt.Sprintf("@color %s [%s]: %s", color, getNickname(ip), message)
+		formattedMessage = fmt.Sprintf("@color %s [%s]: %s", color, getNickname(sessionID), message)
 	} else {
-		formattedMessage = fmt.Sprintf("[%s]: %s", getNickname(ip), message)
+		formattedMessage = fmt.Sprintf("[%s]: %s", getNickname(sessionID), message)
 	}
 
 	broadcastMessage(formattedMessage)
 	fmt.Fprintf(w, "Message sent")
 }
 
-func handleCommand(ip, message string) {
+func handleCommand(sessionID, message string) {
 	switch strings.ToLower(strings.Split(message, " ")[0]) {
 	case ";help":
-		sendPrivateMessage(ip, "{app}: Available commands: ;help, ;members, ;whisper <username> <message>, ;color <hexcode>")
+		sendPrivateMessage(sessionID, "{app}: Available commands: ;help, ;members, ;whisper <username> <message>, ;color <hexcode>")
 
 	case ";color":
 		splitted := strings.Split(message, " ")
 		if len(splitted) != 2 {
-			sendPrivateMessage(ip, "{app}: Usage: ;color <hexcode> (e.g., ;color #ff0000 for red)")
+			sendPrivateMessage(sessionID, "{app}: Usage: ;color <hexcode> (e.g., ;color #ff0000 for red)")
 			return
 		}
 		color := splitted[1]
 		if !strings.HasPrefix(color, "#") || len(color) != 7 {
-			sendPrivateMessage(ip, "{app}: Invalid color format. Use hexadecimal format like #ff0000")
+			sendPrivateMessage(sessionID, "{app}: Invalid color format. Use hexadecimal format like #ff0000")
 			return
 		}
 		nicknameColorsMu.Lock()
-		nicknameColors[ip] = color
+		nicknameColors[sessionID] = color
 		nicknameColorsMu.Unlock()
-		sendPrivateMessage(ip, fmt.Sprintf("{app}: Your nickname color has been changed to %s", color))
+		sendPrivateMessage(sessionID, fmt.Sprintf("{app}: Your nickname color has been changed to %s", color))
 
 	case ";members":
 		nicknamesMu.Lock()
 		members := ""
-		for memberIP, nickname := range nicknames {
-			members = fmt.Sprintf("%s [%s] (%s)", members, memberIP, nickname)
+		for memberSessionID, nickname := range nicknames {
+			members = fmt.Sprintf("%s [%s] (%s)", members, memberSessionID, nickname)
 		}
 		nicknamesMu.Unlock()
-		sendPrivateMessage(ip, "{app}: Online members" + members)
+		sendPrivateMessage(sessionID, "{app}: Online members" + members)
 
 	case ";whisper":
 		splitted := strings.Split(message, " ")
 		toNickname := splitted[1]
 		msg := strings.Join(splitted[2:], " ")
 
-		var toIP string
+		var toSessionID string
 		for k, v := range nicknames {
 			if v == toNickname {
-				toIP = k
+				toSessionID = k
 			}
 		}
 
-		msgToSend := fmt.Sprintf("(whisper to ~%s) [%s]: %s", toNickname, getNickname(ip), msg)
-		sendPrivateMessage(toIP, msgToSend)
-		sendPrivateMessage(ip, msgToSend)
+		msgToSend := fmt.Sprintf("(whisper to ~%s) [%s]: %s", toNickname, getNickname(sessionID), msg)
+		sendPrivateMessage(toSessionID, msgToSend)
+		sendPrivateMessage(sessionID, msgToSend)
 
 	default:
-		sendPrivateMessage(ip, "{app}: Unknown command: " + message)
+		sendPrivateMessage(sessionID, "{app}: Unknown command: " + message)
 	}
 }
 
@@ -156,16 +182,16 @@ func handleEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	ip := getIP(r.RemoteAddr)
+	sessionID := getOrCreateSession(w, r)
 	msgCh := make(chan string)
 
 	clientsMu.Lock()
-	clients[ip] = msgCh
+	clients[sessionID] = msgCh
 	clientsMu.Unlock()
 
 	defer func() {
 		clientsMu.Lock()
-		delete(clients, ip)
+		delete(clients, sessionID)
 		clientsMu.Unlock()
 		close(msgCh)
 	}()
@@ -182,21 +208,13 @@ func handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func getIP(remoteAddr string) string {
-	ip, _, err := net.SplitHostPort(remoteAddr)
-	if err != nil {
-		return remoteAddr
-	}
-	return ip
-}
-
-func getNickname(ip string) string {
+func getNickname(sessionID string) string {
 	nicknamesMu.Lock()
 	defer nicknamesMu.Unlock()
-	if nickname, ok := nicknames[ip]; ok {
+	if nickname, ok := nicknames[sessionID]; ok {
 		return nickname
 	}
-	return ip
+	return "anonymous"
 }
 
 func handleSetNickname(w http.ResponseWriter, r *http.Request) {
@@ -208,10 +226,10 @@ func handleSetNickname(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := getIP(r.RemoteAddr)
+	sessionID := getOrCreateSession(w, r)
 	nicknamesMu.Lock()
-	old := nicknames[ip]
-	nicknames[ip] = nickname
+	old := nicknames[sessionID]
+	nicknames[sessionID] = nickname
 	nicknamesMu.Unlock()
 
 	if old == "" {
@@ -220,8 +238,8 @@ func handleSetNickname(w http.ResponseWriter, r *http.Request) {
 		old = fmt.Sprintf("previously [%s]", old)
 	}
 
-	broadcastMessage(fmt.Sprintf("{app}: client %s (%s) changed nickname to [%s]", ip, old, nickname))
-	fmt.Fprintf(w, "Nickname set to %s for IP %s", nickname, ip)
+	broadcastMessage(fmt.Sprintf("{app}: client %s (%s) changed nickname to [%s]", sessionID, old, nickname))
+	fmt.Fprintf(w, "Nickname set to %s for session %s", nickname, sessionID)
 }
 
 func broadcastMessage(message string) {
@@ -235,9 +253,9 @@ func broadcastMessage(message string) {
 	}
 }
 
-func sendPrivateMessage(ip, message string) {
+func sendPrivateMessage(sessionID, message string) {
 	clientsMu.Lock()
-	ch, ok := clients[ip]
+	ch, ok := clients[sessionID]
 	clientsMu.Unlock()
 	if ok {
 		go func() {
@@ -277,7 +295,7 @@ func handleImageUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := generateRandomId() // Variable declared but not used; removing or utilizing it
+	id := generateRandomId()
 	imageStoreMu.Lock()
 	imageStore[id] = imageBytes
 	imageExpiry[id] = time.Now().Add(1 * time.Minute)
@@ -318,13 +336,13 @@ func startImageCleanup() {
 }
 
 func handleJoin(w http.ResponseWriter, r *http.Request) {
-	ip := getIP(r.RemoteAddr)
-	broadcastMessage(fmt.Sprintf("{app}: %s ([%s]) has joined the room", ip, getNickname(ip)))
+	sessionID := getOrCreateSession(w, r)
+	broadcastMessage(fmt.Sprintf("{app}: %s ([%s]) has joined the room", sessionID, getNickname(sessionID)))
 	w.WriteHeader(http.StatusOK)
 }
 
 func handleLeave(w http.ResponseWriter, r *http.Request) {
-	ip := getIP(r.RemoteAddr)
-	broadcastMessage(fmt.Sprintf("{app}: [%s] (%s) has left the room", getNickname(ip), ip))
+	sessionID := getOrCreateSession(w, r)
+	broadcastMessage(fmt.Sprintf("{app}: [%s] (%s) has left the room", getNickname(sessionID), sessionID))
 	w.WriteHeader(http.StatusOK)
 }

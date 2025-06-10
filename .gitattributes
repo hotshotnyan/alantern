@@ -1,0 +1,5 @@
+*.go linguist-language=Go
+*.html linguist-language=HTML
+go.mod linguist-language=Go
+*.txt linguist-documentation
+render.yaml linguist-language=YAML
