@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -301,7 +300,8 @@ func handleImageUpload(w http.ResponseWriter, r *http.Request) {
 	imageExpiry[id] = time.Now().Add(1 * time.Minute)
 	imageStoreMu.Unlock()
 
-	broadcastMessage(fmt.Sprintf("@image [%s] %s", getNickname(getIP(r.RemoteAddr)), id))
+	sessionID := getOrCreateSession(w, r)
+	broadcastMessage(fmt.Sprintf("@image [%s] %s", getNickname(sessionID), id))
 	w.Write([]byte("Image uploaded"))
 }
 
