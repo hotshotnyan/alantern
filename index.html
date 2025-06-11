@@ -1,10 +1,12 @@
-<?DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
+    <!-- Basic page setup and styling -->
     <meta charset="utf-8" />
     <meta name="viewport" width="device-width,initial-scale=1.0" />
     <title>Alantern</title>
     <style>
+      /* Styles section */
       * {
         margin: 0;
         padding: 0;
@@ -130,6 +132,7 @@
     </style>
   </head>
   <body>
+    <!-- Chat interface layout -->
     <header>
       <p>
         <strong>Alantern</strong>: the scrappy, ugly chat app - written by Samar
@@ -149,11 +152,15 @@
     <div id="messages"></div>
 
     <script>
+      /* Main chat application functionality */
+
+      // DOM element references for user interaction
       const messageInput = document.getElementById("messageInput");
       const messagesDiv = document.getElementById("messages");
       const nicknameInput = document.getElementById("nicknameInput");
       const imageInput = document.getElementById("imageInput");
 
+      // Event listeners for Enter key submissions
       messageInput.addEventListener("keypress", (e) => {
         if (e.key === "Enter") sendMessage();
       });
@@ -162,38 +169,44 @@
         if (e.key === "Enter") setNickname();
       });
 
+      // Handle user join/leave events
       window.onload = () => {
         fetch("/join");
         window.onunload = () => fetch("/leave");
       };
 
+      // Server-Sent Events (SSE) connection for real-time updates
       const events = new EventSource("/events");
       events.onmessage = function (event) {
+        // Auto-scroll handling for new messages
         const messageContainer = document.getElementById("messages");
         const wasAtBottom =
           messageContainer.scrollHeight - messageContainer.scrollTop ===
           messageContainer.clientHeight;
 
+        // Handle different types of messages (text vs images)
         if (event.data.startsWith("@image")) {
           const [_, username, id] = event.data.split(" ");
           addImage(username, id);
         } else {
           addMessage(event.data, event.data.startsWith("@private"));
 
-          // Update title if message contains mention
+          // Notification handling when user is mentioned
           if (currentNickname && event.data.includes(`~${currentNickname}`)) {
             updateTitle(true);
           }
         }
 
-        // Auto-scroll only if we were at the bottom before
+        // Maintain scroll position at bottom if user was already there
         if (wasAtBottom) {
           messageContainer.scrollTop = messageContainer.scrollHeight;
         }
       };
 
+      // Current user's nickname storage
       let currentNickname = "";
 
+      /* Set user's nickname and update server */
       function setNickname() {
         const nickname = nicknameInput.value.trim();
         if (!nickname) return;
@@ -209,13 +222,17 @@
         nicknameInput.value = "";
       }
 
+      /* Add a new message to the chat, handling special formatting:
+         - Admin messages with {app}
+         - Colored usernames
+         - User mentions with notifications
+         - Private messages styling */
       function addMessage(text, isPrivate) {
         const msg = document.createElement("div");
         msg.className = "message" + (isPrivate ? " private-message" : "");
 
         let workingText = text;
 
-        // Handle {app} tag
         if (workingText.includes("{app}")) {
           workingText = workingText.replace(
             /{app}/g,
@@ -223,7 +240,6 @@
           );
         }
 
-        // Handle username brackets and colors
         if (workingText.startsWith("@color ")) {
           const [_, color, ...rest] = workingText.split(" ");
           workingText = rest.join(" ");
@@ -250,19 +266,18 @@
           }
         }
 
-        // Handle username pings/mentions with sound
         if (currentNickname && workingText.includes(`~${currentNickname}`)) {
           const mentionRegex = new RegExp(`~${currentNickname}`, "g");
           workingText = workingText.replace(
             mentionRegex,
             `<span class="highlight-ping">${currentNickname}</span>`
           );
-          // Play notification sound if available
+
           try {
             const audio = new Audio(
               "data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaGAhIHMQOyEhIFJlYWN0aW9uIHNvdW5kIGVmZmVjdABURU5DAAAAHQAAA1N3aXRjaCBQbHVzIMKpIDIwMDQgTkNIIFNvZnQAVElUMgAAABcAAANSZWFjdGlvbiBzb3VuZCBlZmZlY3QAVFBFMQAAAAcAAANSb2NrAFRDT04AAAAHAAADY29tbWVudABUWUVSAAAAAQAAADAAVENPTQAAAAcAAANSb2NrAA=="
             );
-            audio.play().catch(() => {}); // Ignore autoplay restrictions
+            audio.play().catch(() => {});
           } catch (e) {
             console.log("Notification sound unavailable");
           }
@@ -273,6 +288,7 @@
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
       }
 
+      /* Display uploaded images in the chat */
       function addImage(username, id) {
         const msg = document.createElement("div");
         msg.className = "message";
@@ -281,11 +297,11 @@
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
       }
 
+      /* Send a new message to the server */
       function sendMessage() {
         const message = messageInput.value.trim();
         if (!message) return;
 
-        // Disable the input briefly to prevent double-sending
         messageInput.disabled = true;
 
         fetch("/send", {
@@ -309,6 +325,8 @@
           });
       }
 
+      /* Update the page title to show notification for new messages
+         when the window is not focused */
       function updateTitle(hasNewMessages) {
         if (hasNewMessages && !document.hasFocus()) {
           document.title = "(!) Alantern";
@@ -317,6 +335,7 @@
         }
       }
 
+      // Reset title when window regains focus
       document.addEventListener("visibilitychange", () => {
         if (!document.hidden) {
           updateTitle(false);
