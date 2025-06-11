@@ -2,7 +2,7 @@ services:
   - type: web
     name: alantern
     env: go
-    buildCommand: go build -o server
+    buildCommand: go build main.go -o server
     startCommand: ./server
     envVars:
       - key: PORT
