@@ -205,7 +205,7 @@
       const events = new EventSource("/events");
       events.onmessage = function (event) {
         // Auto-scroll handling for new messages
-        const messageContainer = document.getElementById("messages");
+        const messageContainer = messageContainer;
         const wasAtBottom =
           messageContainer.scrollHeight - messageContainer.scrollTop ===
           messageContainer.clientHeight; // Handle different types of messages (text vs images)
@@ -254,7 +254,7 @@
         if (text.startsWith('<div class="private-message">')) { // FIXME: ...?
           const msg = document.createElement("div");
           msg.innerHTML = `<a onclick="dismissPrivateMessage(event)">dismiss</a>${text}`;
-          messagesDiv.appendChild(msg.firstChild);
+          messageContainer.appendChild(msg.firstChild);
           return;
         }
 
@@ -313,8 +313,8 @@
         }
 
         msg.innerHTML = workingText;
-        messagesDiv.appendChild(msg);
-        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        messageContainer.appendChild(msg);
+        messageContainer.scrollTop = messageContainer.scrollHeight;
       }
 
       /* Display uploaded images in the chat */
@@ -322,8 +322,8 @@
         const msg = document.createElement("div");
         msg.className = "message";
         msg.innerHTML = `<span class="highlight-username">${username}</span>: <img src="/image/${id}" style="max-width:100%;max-height:400px">`;
-        messagesDiv.appendChild(msg);
-        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        messageContainer.appendChild(msg);
+        messageContainer.scrollTop = messageContainer.scrollHeight;
       }
 
       /* Send a new message to the server */
