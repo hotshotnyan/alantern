@@ -75,7 +75,7 @@
       }
 
       #messages {
-        height: calc(100vh - 65px);
+        height: calc(100vh - 88px);
         overflow: scroll;
         padding: 8px;
       }
@@ -143,7 +143,7 @@
         Message: <input id="messageInput" type="text" maxlength="2000" />
         <button onclick="sendMessage()">Send</button>
         <input type="file" accept="image/*" id="imageInput" />
-        <button onclick="uploadImage()">Upload Image</button>
+        <button onclick="sendImage()">Upload Image</button>
         &nbsp;&nbsp;|&nbsp;&nbsp; Set nickname:
         <input id="nicknameInput" type="text" maxlength="32" />
         <button onclick="setNickname()">Set</button>
@@ -332,6 +332,24 @@
             messageInput.disabled = false;
             messageInput.focus();
           });
+      }
+
+      function sendImage() {
+        const file = document.querySelector('#image-uploader').files[0];
+        if (!file) {
+          alert('Please upload an image first.');
+          return;
+        }
+
+        const form = new FormData();
+        form.append('image', file, 'uploaded-image.jpg');
+        fetch('/upload-image', {
+          method: 'POST',
+          body: form
+        }).then(res => res.text())
+          .then(console.log)
+          .then(_ => { document.getElementById('image-uploader').value = ''; })
+          .catch(console.error);
       }
 
       /* Update the page title to show notification for new messages
