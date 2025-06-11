@@ -5,6 +5,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" width="device-width,initial-scale=1.0" />
     <title>Alantern</title>
+
     <style>
       /* Styles section */
       * {
@@ -140,48 +141,65 @@
         ;help command
       </p>
       <p>
-        Message: <input id="messageInput" type="text" maxlength="2000" />
-        <button onclick="sendMessage()">Send</button>
-        <input type="file" accept="image/*" id="image-uploader" />
+        <input id="message-input" type="text" maxlength="2000">
+        <button onclick="sendMessage()" data-attach="message-input">Send</button>
+
+        <input id="image-uploader" type="file" accept="image/*">
         <button onclick="sendImage()">Upload Image</button>
-        &nbsp;&nbsp;|&nbsp;&nbsp; Set nickname:
-        <input id="nicknameInput" type="text" maxlength="32" />
-        <button onclick="setNickname()">Set</button>
+        &nbsp;&nbsp;|&nbsp;&nbsp;
+
+        <label for="nickname-input">Nickname</label>
+        <input id="nickname-input" type="text" maxlength="32">
+        <button onclick="setNickname()" data-attach="nickname-input">Set</button>
       </p>
     </header>
-    <div id="messages"></div>
+
+    <div id="message-container"></div>
 
     <script>
       /* Main chat application functionality */
 
       // DOM element references for user interaction
-      const messageInput = document.getElementById("messageInput");
-      const messagesDiv = document.getElementById("messages");
-      const nicknameInput = document.getElementById("nicknameInput");
-      const imageInput = document.getElementById("imageInput");
+      const messageContainer = document.getElementById("message-container");
+      const messageInput = document.getElementById("message-input");
+      const nicknameInput = document.getElementById("nickname-input");
+      const imageInput = document.getElementById("image-uploader");
 
       // Event listeners for Enter key submissions
-      messageInput.addEventListener("keypress", (e) => {
-        if (e.key === "Enter") sendMessage();
-      });
-
-      nicknameInput.addEventListener("keypress", (e) => {
-        if (e.key === "Enter") setNickname();
+      [...document.querySelectorAll("[data-attach]")].forEach(btn => {
+        let field = document.getElementById(btn.dataset.attach);
+        field.addEventListener("keypress", e => {
+          if (e.key === "Enter") btn.click();
+        });
       });
 
       // Handle user join/leave events
-      window.onload = () => {
-        fetch("/join");
-        window.onunload = () => fetch("/leave");
-      };
-
       window.addEventListener("DOMContentLoaded", () => {
         fetch("/join");
       });
 
-      window.addEventListener("unload", () => {
-        // TODO
+      window.addEventListener("beforeunload", () => {
+        navigator.sendBeacon("/leave")
       });
+
+      // why the hell was this removed?
+      function getNearestAncestorByClass(element, className) {
+        while (element !== null) {
+          if (element.className === className || element.classList && element.classList.contains(className)) {
+            return element;
+          }
+          element = element.parentElement;
+        }
+        return null;
+      }
+
+      function dismissPrivateMessage(e) {
+        let dismissButton = e.target;
+        let privateMsg = getNearestAncestorByClass(dismissButton, 'message');
+        if (privateMsg === null)
+          return; // huh???????
+        privateMsg.remove();
+      }
 
       // Server-Sent Events (SSE) connection for real-time updates
       const events = new EventSource("/events");
@@ -221,6 +239,8 @@
           body: `nickname=${encodeURIComponent(nickname)}`,
         }).then(() => {
           currentNickname = nickname;
+        }).catch(err => {
+          addMessage(`<div class="private-message">ERROR: Could not change nickname.</div>`);
         });
 
         nicknameInput.value = "";
@@ -231,9 +251,9 @@
          - Private messages styling */
       function addMessage(text) {
         // Private messages now come with their own div wrapper
-        if (text.startsWith('<div class="private-message">')) {
+        if (text.startsWith('<div class="private-message">')) { // FIXME: ...?
           const msg = document.createElement("div");
-          msg.innerHTML = text;
+          msg.innerHTML = `<a onclick="dismissPrivateMessage(event)">dismiss</a>${text}`;
           messagesDiv.appendChild(msg.firstChild);
           return;
         }
@@ -326,6 +346,7 @@
             }
           })
           .catch((error) => {
+            addMessage(`<div class="private-message">ERROR: Could not send message. The server may be offline.</div>`);
             console.error("Error sending message:", error);
           })
           .finally(() => {

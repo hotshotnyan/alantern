@@ -45,7 +45,7 @@ func NewChatServer() *ChatServer {
 		imageStore:      make(map[string][]byte),
 		imageExpiry:     make(map[string]time.Time),
 		lastMessageTime: make(map[string]time.Time),
-		spamCount:      make(map[string]int),
+		spamCount:       make(map[string]int),
 	}
 }
 
@@ -462,6 +462,12 @@ func (s *ChatServer) handleSetNickname(w http.ResponseWriter, r *http.Request) {
 	sessionID := getOrCreateSession(w, r)
 	
 	s.nicknamesMu.Lock()
+	for _, nick := range s.nicknames {
+		if nickname == nick {
+			http.Error(w, "Invalid nickname: already taken", http.StatusBadRequest)
+			return
+		}
+	}
 	old := s.nicknames[sessionID]
 	s.nicknames[sessionID] = nickname
 	s.nicknamesMu.Unlock()
@@ -499,6 +505,7 @@ func (s *ChatServer) sendPrivateMessage(sessionID, message string) {
 	s.clientsMu.Unlock()
 	if ok {
 		go func() {
+			// FIXME: ?
 			if strings.Contains(message, "{app}") {
 				message = strings.ReplaceAll(message, "{app}", `<span class="highlight-admin-app">Alantern</span>`)
 			}
