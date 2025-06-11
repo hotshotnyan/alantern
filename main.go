@@ -138,7 +138,7 @@ func (s *ChatServer) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		if s.spamCount[sessionID] >= 5 {
 			s.spamCountMu.Unlock()
 			s.lastMessageTimeMu.Unlock()
-			s.sendPrivateMessage(sessionID, "You are sending messages too quickly!")
+			s.sendPrivateMessage(sessionID, "{app}: You are sending messages too quickly!")
 			return
 		}
 		s.spamCountMu.Unlock()
@@ -209,9 +209,8 @@ func (s *ChatServer) handleCommand(sessionID, message string) {
 			s.sendPrivateMessage(sessionID, fmt.Sprintf("{app}: User %s not found", escapeHTMLSpecialChars(toNickname)))
 			return
 		}
-
 		escapedMsg := escapeHTMLSpecialChars(msg)
-		msgToSend := fmt.Sprintf("(whisper to ~%s) [%s]: %s", 
+		msgToSend := fmt.Sprintf("(whisper to @%s) [%s]: %s", 
 			escapeHTMLSpecialChars(toNickname), 
 			escapeHTMLSpecialChars(s.getNickname(sessionID)), 
 			escapedMsg)
@@ -471,7 +470,6 @@ func (s *ChatServer) handleSetNickname(w http.ResponseWriter, r *http.Request) {
 	if _, exists := s.nicknameColors[sessionID]; !exists {
 		s.nicknameColors[sessionID] = s.generateRandomColor()
 	}
-	color := s.nicknameColors[sessionID]
 	s.nicknameColorsMu.Unlock()
 
 	if old == "" {
@@ -480,7 +478,7 @@ func (s *ChatServer) handleSetNickname(w http.ResponseWriter, r *http.Request) {
 		old = fmt.Sprintf("previously [%s]", old)
 	}
 
-	s.broadcastMessage(fmt.Sprintf("@color %s {app}: client %s (%s) changed nickname to [%s]", color, sessionID, old, nickname))
+	s.broadcastMessage(fmt.Sprintf(`<span class="highlight-admin-app">Alantern</span>: client %s (%s) changed nickname to [%s]`, sessionID, old, nickname))
 	fmt.Fprintf(w, "Nickname set to %s for session %s", nickname, sessionID)
 }
 
@@ -501,7 +499,10 @@ func (s *ChatServer) sendPrivateMessage(sessionID, message string) {
 	s.clientsMu.Unlock()
 	if ok {
 		go func() {
-			ch <- "@private " + message
+			if strings.Contains(message, "{app}") {
+				message = strings.ReplaceAll(message, "{app}", `<span class="highlight-admin-app">Alantern</span>`)
+			}
+			ch <- `<div class="private-message">` + message + `</div>`
 		}()
 	}
 }
@@ -579,13 +580,13 @@ func (s *ChatServer) startImageCleanup() {
 
 func (s *ChatServer) handleJoin(w http.ResponseWriter, r *http.Request) {
 	sessionID := getOrCreateSession(w, r)
-	s.broadcastMessage(fmt.Sprintf("{app}: %s ([%s]) has joined the room", sessionID, s.getNickname(sessionID)))
+	s.broadcastMessage(fmt.Sprintf(`<span class="highlight-admin-app">Alantern</span>: %s ([%s]) has joined the room`, sessionID, s.getNickname(sessionID)))
 	w.WriteHeader(http.StatusOK)
 }
 
 func (s *ChatServer) handleLeave(w http.ResponseWriter, r *http.Request) {
 	sessionID := getOrCreateSession(w, r)
-	s.broadcastMessage(fmt.Sprintf("{app}: [%s] (%s) has left the room", s.getNickname(sessionID), sessionID))
+	s.broadcastMessage(fmt.Sprintf(`<span class="highlight-admin-app">Alantern</span>: [%s] (%s) has left the room`, s.getNickname(sessionID), sessionID))
 	w.WriteHeader(http.StatusOK)
 }
 

@@ -175,6 +175,14 @@
         window.onunload = () => fetch("/leave");
       };
 
+      window.addEventListener("DOMContentLoaded", () => {
+        fetch("/join");
+      });
+
+      window.addEventListener("unload", () => {
+        // TODO
+      });
+
       // Server-Sent Events (SSE) connection for real-time updates
       const events = new EventSource("/events");
       events.onmessage = function (event) {
@@ -182,17 +190,13 @@
         const messageContainer = document.getElementById("messages");
         const wasAtBottom =
           messageContainer.scrollHeight - messageContainer.scrollTop ===
-          messageContainer.clientHeight;
-
-        // Handle different types of messages (text vs images)
+          messageContainer.clientHeight; // Handle different types of messages (text vs images)
         if (event.data.startsWith("@image")) {
           const [_, username, id] = event.data.split(" ");
           addImage(username, id);
         } else {
-          addMessage(event.data, event.data.startsWith("@private"));
-
-          // Notification handling when user is mentioned
-          if (currentNickname && event.data.includes(`~${currentNickname}`)) {
+          addMessage(event.data); // Notification handling when user is mentioned
+          if (currentNickname && event.data.includes(`@${currentNickname}`)) {
             updateTitle(true);
           }
         }
@@ -220,16 +224,22 @@
         });
 
         nicknameInput.value = "";
-      }
-
-      /* Add a new message to the chat, handling special formatting:
+      } /* Add a new message to the chat, handling special formatting:
          - Admin messages with {app}
          - Colored usernames
          - User mentions with notifications
          - Private messages styling */
-      function addMessage(text, isPrivate) {
+      function addMessage(text) {
+        // Private messages now come with their own div wrapper
+        if (text.startsWith('<div class="private-message">')) {
+          const msg = document.createElement("div");
+          msg.innerHTML = text;
+          messagesDiv.appendChild(msg.firstChild);
+          return;
+        }
+
         const msg = document.createElement("div");
-        msg.className = "message" + (isPrivate ? " private-message" : "");
+        msg.className = "message";
 
         let workingText = text;
 
@@ -265,9 +275,8 @@
             });
           }
         }
-
-        if (currentNickname && workingText.includes(`~${currentNickname}`)) {
-          const mentionRegex = new RegExp(`~${currentNickname}`, "g");
+        if (currentNickname && workingText.includes(`@${currentNickname}`)) {
+          const mentionRegex = new RegExp(`@${currentNickname}`, "g");
           workingText = workingText.replace(
             mentionRegex,
             `<span class="highlight-ping">${currentNickname}</span>`
