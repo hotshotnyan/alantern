@@ -30,7 +30,16 @@
       }
 
       header p {
-        margin-bottom: 0.5em;
+        margin-bottom: 0.75em;
+        line-height: 1.8;
+      }
+
+      header p:last-child {
+        margin-bottom: 0;
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
       }
 
       input,
@@ -74,43 +83,67 @@
       }
 
       .highlight-username {
-        color: blue;
         font-weight: bold;
+        text-shadow: 0 0 1px rgba(0, 0, 0, 0.2);
+        padding: 0 2px;
       }
 
       .highlight-ping {
-        background-color: #ff04;
-        border: 1px solid #808000;
-        padding-inline: 2px;
+        background-color: rgba(255, 255, 0, 0.3);
+        border: 1px solid rgba(128, 128, 0, 0.3);
+        padding: 0 4px;
+        border-radius: 3px;
+        font-weight: bold;
+        animation: pingHighlight 2s ease-in-out;
+      }
+
+      @keyframes pingHighlight {
+        0% {
+          background-color: rgba(255, 255, 0, 0.6);
+        }
+        100% {
+          background-color: rgba(255, 255, 0, 0.3);
+        }
       }
 
       .highlight-admin-app {
-        color: black;
+        color: #444;
         font-weight: bold;
-        text-decoration: wavy underline;
+        text-decoration: none;
         font-style: italic;
+        background: linear-gradient(90deg, #fff0, #ffd70033, #fff0);
+        padding: 0 4px;
       }
 
       .private-message {
-        padding: 8px;
-        background-color: #eee;
-        opacity: 0.6;
-        outline: 1px solid grey;
-        margin-block: 4px;
+        padding: 8px 12px;
+        background-color: #fff8e1;
+        border-left: 3px solid #ffd700;
+        margin: 8px 0;
+        border-radius: 4px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+      }
+
+      .private-message:hover {
+        background-color: #fff4d1;
       }
     </style>
   </head>
   <body>
     <header>
       <p>
-        Set nickname: <input id="nicknameInput" type="text" maxlength="32" />
-        <button onclick="setNickname()">Set</button>
+        <strong>Alantern</strong>: the scrappy, ugly chat app - written by Samar
+        Thind - long live the free internet - set a nickname first! then try
+        ;help command
       </p>
       <p>
         Message: <input id="messageInput" type="text" maxlength="2000" />
         <button onclick="sendMessage()">Send</button>
         <input type="file" accept="image/*" id="imageInput" />
         <button onclick="uploadImage()">Upload Image</button>
+        &nbsp;&nbsp;|&nbsp;&nbsp; Set nickname:
+        <input id="nicknameInput" type="text" maxlength="32" />
+        <button onclick="setNickname()">Set</button>
       </p>
     </header>
     <div id="messages"></div>
@@ -135,61 +168,107 @@
       };
 
       const events = new EventSource("/events");
-      events.onmessage = (e) => {
-        const msg = e.data;
-        if (msg.startsWith("@private ")) {
-          addMessage(msg.slice(9), true);
-        } else if (msg.startsWith("@image ")) {
-          const [_, username, id] = msg.split(" ");
+      events.onmessage = function (event) {
+        const messageContainer = document.getElementById("messages");
+        const wasAtBottom =
+          messageContainer.scrollHeight - messageContainer.scrollTop ===
+          messageContainer.clientHeight;
+
+        if (event.data.startsWith("@image")) {
+          const [_, username, id] = event.data.split(" ");
           addImage(username, id);
         } else {
-          addMessage(msg);
+          addMessage(event.data, event.data.startsWith("@private"));
+
+          // Update title if message contains mention
+          if (currentNickname && event.data.includes(`~${currentNickname}`)) {
+            updateTitle(true);
+          }
+        }
+
+        // Auto-scroll only if we were at the bottom before
+        if (wasAtBottom) {
+          messageContainer.scrollTop = messageContainer.scrollHeight;
         }
       };
+
+      let currentNickname = "";
+
+      function setNickname() {
+        const nickname = nicknameInput.value.trim();
+        if (!nickname) return;
+
+        fetch("/set-nickname", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: `nickname=${encodeURIComponent(nickname)}`,
+        }).then(() => {
+          currentNickname = nickname;
+        });
+
+        nicknameInput.value = "";
+      }
 
       function addMessage(text, isPrivate) {
         const msg = document.createElement("div");
         msg.className = "message" + (isPrivate ? " private-message" : "");
 
-        if (text.startsWith("@color ")) {
-          const [_, color, ...rest] = text.split(" ");
-          const restOfMessage = rest.join(" ");
+        let workingText = text;
 
-          if (restOfMessage.includes("{app}")) {
-            msg.innerHTML = restOfMessage.replace(
-              "{app}",
-              '<span class="highlight-admin-app">Alantern</span>'
-            );
-          } else {
-            const bracketMatch = restOfMessage.match(/\[(.*?)\]/);
-            if (bracketMatch) {
-              const username = bracketMatch[1];
-              msg.innerHTML = restOfMessage.replace(
-                `[${username}]`,
-                `<span class="highlight-username" style="color:${color}">${username}</span>`
-              );
-            } else {
-              msg.textContent = restOfMessage;
-            }
-          }
-        } else if (text.includes("{app}")) {
-          msg.innerHTML = text.replace(
-            "{app}",
+        // Handle {app} tag
+        if (workingText.includes("{app}")) {
+          workingText = workingText.replace(
+            /{app}/g,
             '<span class="highlight-admin-app">Alantern</span>'
           );
-        } else {
-          const bracketMatch = text.match(/\[(.*?)\]/);
+        }
+
+        // Handle username brackets and colors
+        if (workingText.startsWith("@color ")) {
+          const [_, color, ...rest] = workingText.split(" ");
+          workingText = rest.join(" ");
+          const bracketMatch = workingText.match(/\[(.*?)\]/g);
           if (bracketMatch) {
-            const username = bracketMatch[1];
-            msg.innerHTML = text.replace(
-              `[${username}]`,
-              `<span class="highlight-username">${username}</span>`
-            );
-          } else {
-            msg.textContent = text;
+            bracketMatch.forEach((match) => {
+              const username = match.slice(1, -1);
+              workingText = workingText.replace(
+                match,
+                `<span class="highlight-username" style="color:${color}">${username}</span>`
+              );
+            });
+          }
+        } else {
+          const bracketMatch = workingText.match(/\[(.*?)\]/g);
+          if (bracketMatch) {
+            bracketMatch.forEach((match) => {
+              const username = match.slice(1, -1);
+              workingText = workingText.replace(
+                match,
+                `<span class="highlight-username">${username}</span>`
+              );
+            });
           }
         }
 
+        // Handle username pings/mentions with sound
+        if (currentNickname && workingText.includes(`~${currentNickname}`)) {
+          const mentionRegex = new RegExp(`~${currentNickname}`, "g");
+          workingText = workingText.replace(
+            mentionRegex,
+            `<span class="highlight-ping">${currentNickname}</span>`
+          );
+          // Play notification sound if available
+          try {
+            const audio = new Audio(
+              "data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaGAhIHMQOyEhIFJlYWN0aW9uIHNvdW5kIGVmZmVjdABURU5DAAAAHQAAA1N3aXRjaCBQbHVzIMKpIDIwMDQgTkNIIFNvZnQAVElUMgAAABcAAANSZWFjdGlvbiBzb3VuZCBlZmZlY3QAVFBFMQAAAAcAAANSb2NrAFRDT04AAAAHAAADY29tbWVudABUWUVSAAAAAQAAADAAVENPTQAAAAcAAANSb2NrAA=="
+            );
+            audio.play().catch(() => {}); // Ignore autoplay restrictions
+          } catch (e) {
+            console.log("Notification sound unavailable");
+          }
+        }
+
+        msg.innerHTML = workingText;
         messagesDiv.appendChild(msg);
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
       }
@@ -206,42 +285,43 @@
         const message = messageInput.value.trim();
         if (!message) return;
 
+        // Disable the input briefly to prevent double-sending
+        messageInput.disabled = true;
+
         fetch("/send", {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: `message=${encodeURIComponent(message)}`,
-        });
-
-        messageInput.value = "";
+        })
+          .then((response) => {
+            if (response.ok) {
+              messageInput.value = "";
+            } else {
+              console.error("Failed to send message");
+            }
+          })
+          .catch((error) => {
+            console.error("Error sending message:", error);
+          })
+          .finally(() => {
+            messageInput.disabled = false;
+            messageInput.focus();
+          });
       }
 
-      function setNickname() {
-        const nickname = nicknameInput.value.trim();
-        if (!nickname) return;
-
-        fetch("/set-nickname", {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: `nickname=${encodeURIComponent(nickname)}`,
-        });
-
-        nicknameInput.value = "";
+      function updateTitle(hasNewMessages) {
+        if (hasNewMessages && !document.hasFocus()) {
+          document.title = "(!) Alantern";
+        } else {
+          document.title = "Alantern";
+        }
       }
 
-      async function uploadImage() {
-        const file = imageInput.files[0];
-        if (!file) return;
-
-        const form = new FormData();
-        form.append("image", file);
-
-        await fetch("/upload-image", {
-          method: "POST",
-          body: form,
-        });
-
-        imageInput.value = "";
-      }
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) {
+          updateTitle(false);
+        }
+      });
     </script>
   </body>
 </html>

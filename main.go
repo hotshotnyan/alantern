@@ -101,6 +101,15 @@ func getOrCreateSession(w http.ResponseWriter, r *http.Request) string {
 	return sessionID
 }
 
+func escapeHTMLSpecialChars(s string) string {
+	replacer := strings.NewReplacer(
+		"&", "&amp;",
+		"<", "&lt;",
+		">", "&gt;",
+	)
+	return replacer.Replace(s)
+}
+
 func handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	message := r.FormValue("message")
@@ -119,7 +128,7 @@ func handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		if spamCount[sessionID] >= 5 {
 			spamCountMu.Unlock()
 			lastMessageTimeMu.Unlock()
-			sendPrivateMessage(sessionID, "holy man ur spamming as fast as omar eats")
+			sendPrivateMessage(sessionID, "You are sending messages too quickly!")
 			return
 		}
 		spamCountMu.Unlock()
@@ -140,11 +149,14 @@ func handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	color := nicknameColors[sessionID]
 	nicknameColorsMu.Unlock()
 
+	// Escape the message content while preserving special formatting
+	escapedMessage := escapeHTMLSpecialChars(message)
+
 	var formattedMessage string
 	if color != "" {
-		formattedMessage = fmt.Sprintf("@color %s [%s]: %s", color, getNickname(sessionID), message)
+		formattedMessage = fmt.Sprintf("@color %s [%s]: %s", color, getNickname(sessionID), escapedMessage)
 	} else {
-		formattedMessage = fmt.Sprintf("[%s]: %s", getNickname(sessionID), message)
+		formattedMessage = fmt.Sprintf("[%s]: %s", getNickname(sessionID), escapedMessage)
 	}
 
 	broadcastMessage(formattedMessage)
@@ -154,7 +166,49 @@ func handleSendMessage(w http.ResponseWriter, r *http.Request) {
 func handleCommand(sessionID, message string) {
 	switch strings.ToLower(strings.Split(message, " ")[0]) {
 	case ";help":
-		sendPrivateMessage(sessionID, "{app}: Available commands: ;help, ;members, ;whisper <username> <message>, ;color <hexcode>")
+		sendPrivateMessage(sessionID, "{app}: Available commands: ;help, ;members, ;whisper <username> <message>, ;color <hexcode|colorname>")
+
+	case ";members":
+		nicknamesMu.Lock()
+		members := ""
+		for memberSessionID, nickname := range nicknames {
+			members = fmt.Sprintf("%s [%s] (%s)", members, escapeHTMLSpecialChars(nickname), escapeHTMLSpecialChars(memberSessionID))
+		}
+		nicknamesMu.Unlock()
+		sendPrivateMessage(sessionID, "{app}: Online members" + members)
+
+	case ";whisper":
+		splitted := strings.Split(message, " ")
+		if len(splitted) < 3 {
+			sendPrivateMessage(sessionID, "{app}: Usage: ;whisper <username> <message>")
+			return
+		}
+		toNickname := splitted[1]
+		msg := strings.Join(splitted[2:], " ")
+
+		var toSessionID string
+		nicknamesMu.Lock()
+		for k, v := range nicknames {
+			if v == toNickname {
+				toSessionID = k
+				break
+			}
+		}
+		nicknamesMu.Unlock()
+
+		if toSessionID == "" {
+			sendPrivateMessage(sessionID, fmt.Sprintf("{app}: User %s not found", escapeHTMLSpecialChars(toNickname)))
+			return
+		}
+
+		escapedMsg := escapeHTMLSpecialChars(msg)
+		msgToSend := fmt.Sprintf("(whisper to ~%s) [%s]: %s", 
+			escapeHTMLSpecialChars(toNickname), 
+			escapeHTMLSpecialChars(getNickname(sessionID)), 
+			escapedMsg)
+		
+		sendPrivateMessage(toSessionID, msgToSend)
+		sendPrivateMessage(sessionID, msgToSend)
 
 	case ";color":
 		splitted := strings.Split(message, " ")
@@ -335,33 +389,8 @@ func handleCommand(sessionID, message string) {
 		nicknameColorsMu.Unlock()
 		sendPrivateMessage(sessionID, fmt.Sprintf("{app}: Your nickname color has been changed to %s", color))
 
-	case ";members":
-		nicknamesMu.Lock()
-		members := ""
-		for memberSessionID, nickname := range nicknames {
-			members = fmt.Sprintf("%s [%s] (%s)", members, memberSessionID, nickname)
-		}
-		nicknamesMu.Unlock()
-		sendPrivateMessage(sessionID, "{app}: Online members" + members)
-
-	case ";whisper":
-		splitted := strings.Split(message, " ")
-		toNickname := splitted[1]
-		msg := strings.Join(splitted[2:], " ")
-
-		var toSessionID string
-		for k, v := range nicknames {
-			if v == toNickname {
-				toSessionID = k
-			}
-		}
-
-		msgToSend := fmt.Sprintf("(whisper to ~%s) [%s]: %s", toNickname, getNickname(sessionID), msg)
-		sendPrivateMessage(toSessionID, msgToSend)
-		sendPrivateMessage(sessionID, msgToSend)
-
 	default:
-		sendPrivateMessage(sessionID, "{app}: Unknown command: " + message)
+		sendPrivateMessage(sessionID, "{app}: Unknown command: " + escapeHTMLSpecialChars(message))
 	}
 }
 
@@ -405,6 +434,14 @@ func getNickname(sessionID string) string {
 	return "anonymous"
 }
 
+func generateRandomColor() string {
+	colors := []string{"#ff0000", "#00ff00", "#0000ff", "#ffff00", "#ff00ff", "#00ffff",
+		"#ff8000", "#ff0080", "#80ff00", "#00ff80", "#8000ff", "#0080ff"}
+	r := make([]byte, 1)
+	rand.Read(r)
+	return colors[int(r[0])%len(colors)]
+}
+
 func handleSetNickname(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	nickname := r.FormValue("nickname")
@@ -415,10 +452,19 @@ func handleSetNickname(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sessionID := getOrCreateSession(w, r)
+	
 	nicknamesMu.Lock()
 	old := nicknames[sessionID]
 	nicknames[sessionID] = nickname
 	nicknamesMu.Unlock()
+
+	// Assign random color for new users
+	nicknameColorsMu.Lock()
+	if _, exists := nicknameColors[sessionID]; !exists {
+		nicknameColors[sessionID] = generateRandomColor()
+	}
+	color := nicknameColors[sessionID]
+	nicknameColorsMu.Unlock()
 
 	if old == "" {
 		old = "no previous nicknames"
@@ -426,7 +472,8 @@ func handleSetNickname(w http.ResponseWriter, r *http.Request) {
 		old = fmt.Sprintf("previously [%s]", old)
 	}
 
-	broadcastMessage(fmt.Sprintf("{app}: client %s (%s) changed nickname to [%s]", sessionID, old, nickname))
+	// Add color info to the feedback message
+	broadcastMessage(fmt.Sprintf("@color %s {app}: client %s (%s) changed nickname to [%s]", color, sessionID, old, nickname))
 	fmt.Fprintf(w, "Nickname set to %s for session %s", nickname, sessionID)
 }
 
