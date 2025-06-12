@@ -67,15 +67,15 @@
         border: 1px solid black;
       }
 
-      #messageInput {
+      #message-input {
         width: 80ch;
       }
 
-      #nicknameInput {
+      #nickname-input {
         width: 10ch;
       }
 
-      #messages {
+      #message-container {
         height: calc(100vh - 88px);
         overflow: scroll;
         padding: 8px;
@@ -101,12 +101,8 @@
       }
 
       @keyframes pingHighlight {
-        0% {
-          background-color: rgba(255, 255, 0, 0.6);
-        }
-        100% {
-          background-color: rgba(255, 255, 0, 0.3);
-        }
+        from { background-color: rgba(255, 255, 0, 0.6); }
+        to { background-color: rgba(255, 255, 0, 0.3); }
       }
 
       .highlight-admin-app {
@@ -140,6 +136,7 @@
         Thind - long live the free internet - set a nickname first! then try
         ;help command
       </p>
+
       <p>
         <input id="message-input" type="text" maxlength="2000">
         <button onclick="sendMessage()" data-attach="message-input">Send</button>
@@ -173,7 +170,6 @@
         });
       });
 
-      // Handle user join/leave events
       window.addEventListener("DOMContentLoaded", () => {
         fetch("/join");
       });
@@ -182,7 +178,6 @@
         navigator.sendBeacon("/leave")
       });
 
-      // why the hell was this removed?
       function getNearestAncestorByClass(element, className) {
         while (element !== null) {
           if (element.className === className || element.classList && element.classList.contains(className)) {
@@ -205,7 +200,6 @@
       const events = new EventSource("/events");
       events.onmessage = function (event) {
         // Auto-scroll handling for new messages
-        const messageContainer = messageContainer;
         const wasAtBottom =
           messageContainer.scrollHeight - messageContainer.scrollTop ===
           messageContainer.clientHeight; // Handle different types of messages (text vs images)
