@@ -247,7 +247,8 @@
         // Private messages now come with their own div wrapper
         if (text.startsWith('<div class="private-message">')) { // FIXME: ...?
           const msg = document.createElement("div");
-          msg.innerHTML = `<a onclick="dismissPrivateMessage(event)">dismiss</a>${text}`;
+          msg.className = "private-message";
+          msg.innerHTML = `<button onclick="dismissPrivateMessage(event)">dismiss</button>${text}`;
           messageContainer.appendChild(msg.firstChild);
           return;
         }
