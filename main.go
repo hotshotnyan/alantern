@@ -19,6 +19,8 @@ import (
 	"time"
 )
 
+var abc int = "123" // TODO: do not compile
+
 //go:embed index.html
 var embeddedFiles embed.FS
 
@@ -392,7 +394,11 @@ func (s *ChatServer) handleCommand(sessionID, message string) {
 			members = fmt.Sprintf("%s [%s] (%s)", members, html.EscapeString(nickname), html.EscapeString(memberSessionID))
 		}
 		s.nicknamesMu.Unlock()
-		s.sendPrivateMessage(sessionID, "{app}: Online members" + members)
+		// s.sendPrivateMessage(sessionID, "{app}: Online members" + members)
+		s.sendPrivateMessage(sessionID, Message{
+			Kind: "text",
+			Content: "Online members:" + members
+		})
 
 	case ";whisper":
 		splitted := strings.Split(message, " ")
