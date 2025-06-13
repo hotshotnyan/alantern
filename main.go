@@ -1,7 +1,5 @@
 package main
 
-// TODO: commit and break
-
 import (
 	crand "crypto/rand"
 	mrand "math/rand"
@@ -18,8 +16,6 @@ import (
 	"sync"
 	"time"
 )
-
-var abc int = "123" // TODO: do not compile
 
 //go:embed index.html
 var embeddedFiles embed.FS
@@ -336,7 +332,7 @@ func (s *ChatServer) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 			s.lastMessageTimeMu.Unlock()
 			s.sendPrivateMessage(sessionID, Message{
 				Kind: "text",
-				Content: "You are sending messages quicker than Omar eating",
+				Content: "You are sending messages quicker than Omar eating"
 			})
 			return
 		}
@@ -365,7 +361,7 @@ func (s *ChatServer) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		Content: html.EscapeString(messageText),
 		Author: &MessageAuthor{
 			ID: sessionID,
-			Nickname: s.getNickname(sessionID),
+			Nickname: s.getNickname(sessionID)
 		}
 	}
 
@@ -395,9 +391,10 @@ func (s *ChatServer) handleCommand(sessionID, message string) {
 		}
 		s.nicknamesMu.Unlock()
 		// s.sendPrivateMessage(sessionID, "{app}: Online members" + members)
+		messageContent := "Online members:" + members
 		s.sendPrivateMessage(sessionID, Message{
 			Kind: "text",
-			Content: "Online members:" + members
+			Content: messageContent
 		})
 
 	case ";whisper":
@@ -420,7 +417,9 @@ func (s *ChatServer) handleCommand(sessionID, message string) {
 		s.nicknamesMu.Unlock()
 
 		if toSessionID == "" {
-			s.sendPrivateMessage(sessionID, fmt.Sprintf("{app}: User %s not found", html.EscapeString(toNickname)))
+			// s.sendPrivateMessage(sessionID, fmt.Sprintf("{app}: User %s not found", html.EscapeString(toNickname)))
+			messageContent := fmt.Sprintf("User %s not found", html.EscapeString(toNickname))
+			s.sendPrivateMessage(sessionID, Message{ Kind: "text", Content: messageContent })
 			return
 		}
 		escapedMsg := html.EscapeString(msg)
@@ -428,14 +427,18 @@ func (s *ChatServer) handleCommand(sessionID, message string) {
 			html.EscapeString(toNickname), 
 			html.EscapeString(s.getNickname(sessionID)), 
 			escapedMsg)
-		
-		s.sendPrivateMessage(toSessionID, msgToSend)
-		s.sendPrivateMessage(sessionID, msgToSend)
+
+		s.sendPrivateMessage(toSessionID, Message{ Kind: "text", Content: msgToSend })
+		s.sendPrivateMessage(sessionID, Message{ Kind: "text", Content: msgToSend })
 
 	case ";color":
 		splitted := strings.Split(message, " ")
 		if len(splitted) != 2 {
-			s.sendPrivateMessage(sessionID, "{app}: Usage: ;color <hexcode|colorname> (e.g., ;color #ff0000 or ;color red)")
+			// s.sendPrivateMessage(sessionID, "{app}: Usage: ;color <hexcode|colorname> (e.g., ;color #ff0000 or ;color red)")
+			s.sendPrivateMessage(sessionID, Message{
+				Kind: "text",
+				Content: "Usage: ;color &lt;hexcode|colorname&gt;"
+			})
 			return
 		}
 		color := splitted[1]
@@ -443,17 +446,31 @@ func (s *ChatServer) handleCommand(sessionID, message string) {
 		if hex, ok := predefinedColors[strings.ToLower(color)]; ok {
 			color = hex
 		} else if !strings.HasPrefix(color, "#") || len(color) != 7 {
-			s.sendPrivateMessage(sessionID, "{app}: Invalid color format. Use hexadecimal format like #ff0000 or predefined names like red")
+			// s.sendPrivateMessage(sessionID, "{app}: Invalid color format. Use hexadecimal format like #ff0000 or predefined names like red")
+			s.sendPrivateMessge(sessionID, Message{
+				Kind: "text",
+				Content: "Invalid color format. Use hexadecimal format like #ff0000 or predefined names like red"
+			})
 			return
 		}
 
 		s.nicknameColorsMu.Lock()
 		s.nicknameColors[sessionID] = color
 		s.nicknameColorsMu.Unlock()
-		s.sendPrivateMessage(sessionID, fmt.Sprintf("{app}: Your nickname color has been changed to %s", color))
+		// s.sendPrivateMessage(sessionID, fmt.Sprintf("{app}: Your nickname color has been changed to %s", color))
+		messageContent := fmt.Sprintf("Your nickname color has been changed to %s", color)
+		s.sendPrivateMessage(sessionID, Message{
+			Kind: "text",
+			Content: messageContent
+		})
 
 	default:
-		s.sendPrivateMessage(sessionID, "{app}: Unknown command: " + html.EscapeString(message))
+		// s.sendPrivateMessage(sessionID, "{app}: Unknown command: " + html.EscapeString(message))
+		messageContent := "Unknown command: " + html.EscapeString(message)
+		s.sendPrivateMessage(sessionID, Message{
+			Kind: "text",
+			Content: messageContent
+		})
 	}
 }
 
@@ -535,11 +552,12 @@ func (s *ChatServer) handleSetNickname(w http.ResponseWriter, r *http.Request) {
 		old = fmt.Sprintf("previously [%s]", old)
 	}
 
+	messageContent := fmt.Sprintf("client %s ([%s]) changed nickname to [%s]", sessionID, old, nickname)
 	s.broadcastMessage(Message{
 		Private: false,
 		FromApp: true,
 		Kind: "text",
-		Content: fmt.Sprintf("client %s ([%s]) changed nickname to [%s]", sessionID, old, nickname)
+		Content: messageContent
 	})
 	fmt.Fprintf(w, "Nickname set to %s for session %s", nickname, sessionID)
 }
@@ -621,7 +639,18 @@ func (s *ChatServer) handleImageUpload(w http.ResponseWriter, r *http.Request) {
 	s.imageStoreMu.Unlock()
 
 	sessionID := getOrCreateSession(w, r)
-	s.broadcastMessage(fmt.Sprintf("@image [%s] %s", s.getNickname(sessionID), id))
+	// s.broadcastMessage(fmt.Sprintf("@image [%s] %s", s.getNickname(sessionID), id))
+	sessionNickname := s.getNickname(sessionID)
+	s.broadcastMessage(Message{
+		FromApp: false,
+		Private: false,
+		Kind: "image",
+ 		Content: id,
+		Author: &MessageAuthor{
+			ID: sessionID,
+			Nickname: sessionNickname
+		}
+	})
 	w.Write([]byte("Image uploaded"))
 }
 
@@ -657,12 +686,26 @@ func (s *ChatServer) startImageCleanup() {
 
 func (s *ChatServer) handleJoin(w http.ResponseWriter, r *http.Request) {
 	sessionID := getOrCreateSession(w, r)
-	s.broadcastMessage(fmt.Sprintf(`<span class="highlight-admin-app">Alantern</span>: %s ([%s]) has joined the room`, sessionID, s.getNickname(sessionID)))
+	// s.broadcastMessage(fmt.Sprintf(`<span class="highlight-admin-app">Alantern</span>: %s ([%s]) has joined the room`, sessionID, s.getNickname(sessionID)))
+	messageContent := fmt.Sprintf("%s ([%s]) has joined the room", sessionID, s.getNickname(sessionID))
+	s.broadcastMessage(Message{
+		Private: false,
+		FromApp: true,
+		Kind: "text",
+		Content: messageContent
+	})
 	w.WriteHeader(http.StatusOK)
 }
 
 func (s *ChatServer) handleLeave(w http.ResponseWriter, r *http.Request) {
 	sessionID := getOrCreateSession(w, r)
-	s.broadcastMessage(fmt.Sprintf(`<span class="highlight-admin-app">Alantern</span>: [%s] (%s) has left the room`, s.getNickname(sessionID), sessionID))
+	// s.broadcastMessage(fmt.Sprintf(`<span class="highlight-admin-app">Alantern</span>: [%s] (%s) has left the room`, s.getNickname(sessionID), sessionID))
+	messageContent := fmt.Sprintf("[%s] (%s) has left the room", s.getNickname(sessionID), sessionID)
+	s.broadcastMessage(Message{
+		Private: false,
+		FromApp: true,
+		Kind: "text",
+		Content: messageContent
+	})
 	w.WriteHeader(http.StatusOK)
 }
